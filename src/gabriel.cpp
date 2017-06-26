@@ -24,7 +24,7 @@ void printGraph(const char* title, VertexVector* vertices, EdgeVector* edges, bo
 		// Iterate through the vertices and print them out
 		for (int i = 0; i < vertices->size(); i++) {
 			CGALPoint* v = (*vertices)[i];
-			std::cout << "index: " << v << " (" << (*v) << ")" << std::endl;
+			std::cout << "index: " << i << " (" << v->x() << ", " << v->y() << ")" << std::endl;
 		}
 	}
 
@@ -131,14 +131,14 @@ bool IsInsideCircle(CGALPoint* p, CGALPoint* q, CGALPoint* t) {
 		|| side == CGAL::Bounded_side::ON_BOUNDARY;
 }
 
-void computeCgg(
+void computeNonLocallyGabriel(
 	VertexVector* vertices,
 	EdgeVector* edges,
-	boost::unordered_map<TriVertexHandle, VertexIndex>** handlesToIndex,
 	EdgeVector** NewEdges,
 	EdgeVector** S_Edges) {
 
-	CDT* cdt = computeCdt(vertices, edges, handlesToIndex);
+	boost::unordered_map<TriVertexHandle, VertexIndex>* handlesToIndex;
+	CDT* cdt = computeCdt(vertices, edges, &handlesToIndex);
 	(*NewEdges) = newConstraintSetFromCdt(cdt, vertices);
 
 	boost::unordered_set<TriEdge>* S = new boost::unordered_set<TriEdge>();
@@ -209,18 +209,123 @@ void computeCgg(
 		TriVertexHandle e0 = f0->vertex(f0->cw(eIndex));
 		TriVertexHandle e1 = f0->vertex(f0->ccw(eIndex));
 
-		VertexIndex u = (**handlesToIndex)[e0];
-		VertexIndex v = (**handlesToIndex)[e1];
+		VertexIndex u = (*handlesToIndex)[e0];
+		VertexIndex v = (*handlesToIndex)[e1];
 
 		(*S_Edges)->push_back(new SimpleEdge(u, v, 0));
 	}
 
 	boost::chrono::high_resolution_clock::time_point endTotal = boost::chrono::high_resolution_clock::now();
 	boost::chrono::milliseconds total = (boost::chrono::duration_cast<boost::chrono::milliseconds>(endTotal - startTotal));
-	printDuration("Total duration", total);
+	printDuration("computeNonLocallyGabriel duration", total);
 
 	delete S;
 	delete cdt;
+	delete handlesToIndex;
+}
+
+void computeCgg(
+	VertexVector* vertices,
+	EdgeVector* edges,
+	EdgeVector** NewEdges,
+	EdgeVector** gabriel) {
+
+	boost::unordered_set<SimpleEdge>* constraintEdgesSet = createSimpleEdgeSet(edges);
+
+	boost::unordered_map<TriVertexHandle, VertexIndex>* handlesToIndex;
+	CDT* cdt = computeCdt(vertices, edges, &handlesToIndex);
+	(*NewEdges) = newConstraintSetFromCdt(cdt, vertices);
+
+	boost::unordered_set<TriEdge>* S = new boost::unordered_set<TriEdge>();
+
+	TriVertexHandle infiniteVertex = cdt->infinite_vertex();
+	int edgeCount = 0;
+
+	boost::chrono::high_resolution_clock::time_point startTotal = boost::chrono::high_resolution_clock::now();
+
+	for (FiniteEdgeIter iter = cdt->finite_edges_begin(); iter != cdt->finite_edges_end(); ++iter) {
+		edgeCount++;
+
+		// typedef std::pair<Face_handle, int> Edge;
+		TriEdge e = *iter;
+		int eIndex = e.second;
+
+		// Edge shared by faces f0 and f1
+		TriFaceHandle f0 = e.first;
+		TriFaceHandle f1 = e.first->neighbor(eIndex);
+
+		// Vertex opposite of edge e in f0, f1
+		TriVertexHandle opp0 = f0->vertex(eIndex);
+
+		// Vertex of edge e
+		TriVertexHandle e0 = f0->vertex(f0->cw(eIndex));
+		TriVertexHandle e1 = f0->vertex(f0->ccw(eIndex));
+
+		TriVertexHandle opp1 = OppositeOfEdge(e0, e1, f1);
+
+		if (SHOW_DEBUG) {
+			// Vertex endpoint v0, v1 of edge e for f0 (doesn't seem to be possible to identify the same edge for f1 in a similar way)
+			std::cout << eIndex << std::endl;
+			std::cout << "(" << *e0 << ") (" << *e1 << ")" << std::endl;
+			std::cout << "(" << *opp0 << ")" << std::endl;
+		}
+
+		if (e0 != infiniteVertex && e1 != infiniteVertex) {
+			CGALPoint p = e0->point();
+			CGALPoint q = e1->point();
+			VertexIndex u = (*handlesToIndex)[e0];
+			VertexIndex v = (*handlesToIndex)[e1];
+
+			bool addToGabriel = true;
+
+			if (opp0 != infiniteVertex) {
+				CGALPoint t = opp0->point();
+				// Is not locally gabriel
+				// Is not a constraint edge
+				if (IsInsideCircle(&p, &q, &t)
+					&& (constraintEdgesSet->count(SimpleEdge(u, v, 0)) < 1)) {
+					addToGabriel = false;
+				}
+			}
+
+			if (opp1 != infiniteVertex) {
+				CGALPoint t = opp1->point();
+				// Is not locally gabriel
+				// Is not a constraint edge
+				if (IsInsideCircle(&p, &q, &t)
+					&& (constraintEdgesSet->count(SimpleEdge(u, v, 0)) < 1)) {
+					addToGabriel = false;
+				}
+			}
+
+			if (addToGabriel) {
+				S->emplace(e);
+			}
+		}
+	}
+
+	(*gabriel) = new EdgeVector();
+	for (boost::unordered_set<TriEdge>::iterator iter = S->begin(); iter != S->end(); ++iter) {
+		TriEdge e = *iter;
+		int eIndex = e.second;
+		TriFaceHandle f0 = e.first;
+		TriVertexHandle e0 = f0->vertex(f0->cw(eIndex));
+		TriVertexHandle e1 = f0->vertex(f0->ccw(eIndex));
+
+		VertexIndex u = (*handlesToIndex)[e0];
+		VertexIndex v = (*handlesToIndex)[e1];
+
+		(*gabriel)->push_back(new SimpleEdge(u, v, 0));
+	}
+
+	boost::chrono::high_resolution_clock::time_point endTotal = boost::chrono::high_resolution_clock::now();
+	boost::chrono::milliseconds total = (boost::chrono::duration_cast<boost::chrono::milliseconds>(endTotal - startTotal));
+	printDuration("computeCgg duration", total);
+
+	delete S;
+	delete cdt;
+	delete handlesToIndex;
+	delete constraintEdgesSet;
 }
 
 EdgeVector* intersectInputSetWithConstraintSet(EdgeVector* inputSet, EdgeVector* constraintSet) {
@@ -304,15 +409,13 @@ bool isCdtSubgraph(VertexVector* vertices, EdgeVector* edgesF, EdgeVector* edges
 }
 
 bool isCggSubgraph(VertexVector* vertices, EdgeVector* edgesF, EdgeVector* edgesS) {
-	boost::unordered_map<TriVertexHandle, VertexIndex>* handlesToIndex;
 	EdgeVector* newEdgesS;
-	EdgeVector* cggS;
-	computeCgg(vertices, edgesS, &handlesToIndex, &newEdgesS, &cggS);
-	bool res = isSubgraph(vertices, newEdgesS, cggS);
+	EdgeVector* gabriel_S;
+	computeCgg(vertices, edgesS, &newEdgesS, &gabriel_S);
+	bool res = isSubgraph(vertices, edgesF, gabriel_S);
 
-	delete cggS;
+	delete gabriel_S;
 	delete newEdgesS;
-	delete handlesToIndex;
 
 	return res;
 }
@@ -326,22 +429,28 @@ int main(int argc, char* argv[]) {
 
 	if (vertFile == NULL || edgeFile == NULL) {
 		// Random graph
-		createRandomPlaneForest(1000, 1000, 1000, &vertices, &edges);
+		createRandomPlaneForest(10, 10, 10, &vertices, &edges);
 	}
 	else {
 		// Load graph from file
 		parseGraph(vertFile, edgeFile, &vertices, &edges);
 	}
 
+	if (SHOW_DEBUG) {
+		printGraph("Input", vertices, edges, true);
+	}
+
 	// Compute CGG(V, E)
-	boost::unordered_map<TriVertexHandle, VertexIndex>* handlesToIndex;
 	EdgeVector* NewEdges;
 	EdgeVector* cggS;
-	computeCgg(vertices, edges, &handlesToIndex, &NewEdges, &cggS);
+	computeNonLocallyGabriel(vertices, edges, &NewEdges, &cggS);
 	EdgeVector* S = intersectInputSetWithConstraintSet(NewEdges, cggS);
 	std::cout << "Edges in E: " << NewEdges->size() << " Edges in S: " << S->size() << " Ratio: " << (double)((double)S->size() / (double)NewEdges->size()) << std::endl;
 
-	// Validatation:
+	// Other possible validatation
+	// CGG ⊆ CDT
+	// S ⊆ CDT
+
 	// S ⊆ E
 	if (!isSubgraph(vertices, S, NewEdges)) {
 		std::cout << "Error: isSubgraph is false" << std::endl;
@@ -352,7 +461,9 @@ int main(int argc, char* argv[]) {
 		std::cout << "Error: isCdtSubgraph is false" << std::endl;
 	}
 
-	// F ⊆ CGG(V, S)
+	// F ⊆ CGG(V, S), CGG is computed by running a CDT on S, followed by
+	// a locally gabriel check on all edge from the CDT and eliminating edges
+	// that are non-locally gabriel AND not a constraint edge
 	if (!isCggSubgraph(vertices, NewEdges, S)) {
 		std::cout << "Error: isCggSubgraph is false" << std::endl;
 	}
@@ -360,7 +471,6 @@ int main(int argc, char* argv[]) {
 	deleteEdgeVector(S);
 	deleteEdgeVector(cggS);
 	deleteEdgeVector(NewEdges);
-	delete handlesToIndex;
 	deleteEdgeVector(edges);
 	deleteVerticesVector(vertices);
 
