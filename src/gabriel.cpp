@@ -411,7 +411,9 @@ bool isSubgraph(VertexVector* vertices, EdgeVector* a, EdgeVector* b) {
 		if (!containsEdge(bEdgeSet, edge)) {
 			CGALPoint* u = (*vertices)[edge->u];
 			CGALPoint* v = (*vertices)[edge->v];
-			EdgeWeight weight = CGAL::squared_distance(*u, *v);
+			//EdgeWeight weight = CGAL::squared_distance(*u, *v);
+			CGAL::Lazy_exact_nt<CGAL::Gmpq> exactWeight = CGAL::squared_distance(*u, *v);
+			EdgeWeight weight = CGAL::to_double(exactWeight);
 			std::cout << "b contains edge not in a: " << weight << " (" << *u << ") (" << *v << ")" << std::endl;
 			return false;
 		}
