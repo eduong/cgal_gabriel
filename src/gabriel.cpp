@@ -304,7 +304,7 @@ void computeCgg(
 		TriFaceHandle f0 = e.first;
 		TriFaceHandle f1 = e.first->neighbor(eIndex);
 
-		// Vertex opposite of edge e in f0, f1
+		// Vertex opposite of edge e in f0
 		TriVertexHandle opp0 = f0->vertex(eIndex);
 
 		// Vertex of edge e
@@ -326,7 +326,7 @@ void computeCgg(
 			VertexIndex u = (*handlesToIndex)[e0];
 			VertexIndex v = (*handlesToIndex)[e1];
 
-			bool addToGabriel = true;
+			bool addToS = true;
 
 			if (opp0 != infiniteVertex) {
 				CGALPoint t = opp0->point();
@@ -334,7 +334,7 @@ void computeCgg(
 				// Is not a constraint edge
 				if (IsInsideCircle(&p, &q, &t)
 					&& (constraintEdgesSet->count(SimpleEdge(u, v, 0)) < 1)) {
-					addToGabriel = false;
+					addToS = false;
 				}
 			}
 
@@ -344,11 +344,11 @@ void computeCgg(
 				// Is not a constraint edge
 				if (IsInsideCircle(&p, &q, &t)
 					&& (constraintEdgesSet->count(SimpleEdge(u, v, 0)) < 1)) {
-					addToGabriel = false;
+					addToS = false;
 				}
 			}
 
-			if (addToGabriel) {
+			if (addToS) {
 				S->emplace(e);
 			}
 		}
@@ -482,11 +482,13 @@ int main(int argc, char* argv[]) {
 
 	if (vertFile == NULL || edgeFile == NULL) {
 		// Random graph
-		createRandomPlaneForest(1000, 1000, 100, &vertices, &edges);
-		//createRandomNearTriangulation(1000, 1000, &vertices, &edges);
+		//createRandomCirclePlaneForest(1000, 1000, 100, &vertices, &edges);
+		//createRandomMediumLengthPlaneForest(1000, 1000, 100, &vertices, &edges);
+		createRandomNearTriangulation(1000, 1000, 100, &vertices, &edges);
 	}
 	else {
 		// Load graph from file
+		// e.g. D:\g\data\HI.nodes D:\g\data\HI.edges
 		parseGraph(vertFile, edgeFile, &vertices, &edges);
 	}
 
@@ -499,7 +501,10 @@ int main(int argc, char* argv[]) {
 	EdgeVector* cggS;
 	computeNonLocallyGabriel(vertices, edges, &NewEdges, &cggS);
 	EdgeVector* S = intersectInputSetWithConstraintSet(NewEdges, cggS);
-	std::cout << "Edges in E: " << NewEdges->size() << " Edges in S: " << S->size() << " Ratio: " << (double)((double)S->size() / (double)NewEdges->size()) << std::endl;
+	//std::cout << "Edges in E: " << NewEdges->size() << " Edges in S: " << S->size() << " Ratio: " << (double)((double)S->size() / (double)NewEdges->size()) << std::endl;
+	std::cout << S->size() << std::endl;
+	std::cout << (double)((double)S->size() / (double)NewEdges->size()) << std::endl;
+	std::cout << std::endl;
 
 	//printGDFGraph("D:\\g\\results\\graph examples\\hi_gg_S.gdf", vertices, S);
 
@@ -524,9 +529,11 @@ int main(int argc, char* argv[]) {
 		std::cout << "Error: isCggSubgraph is false" << std::endl;
 	}
 
+		
 	deleteEdgeVector(S);
 	deleteEdgeVector(cggS);
 	deleteEdgeVector(NewEdges);
+
 	deleteEdgeVector(edges);
 	deleteVerticesVector(vertices);
 
